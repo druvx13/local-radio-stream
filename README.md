@@ -5,6 +5,14 @@
 ---
 
 ## 📌 Project Overview
+
+### Demo-Screenshot
+
+![Local Radio Stream](https://raw.githubusercontent.com/druvx13/local-radio-stream/refs/heads/main/Local%20Radio%20Stream.png)
+
+[✨Visit Dummy Demo](https://druvx13.github.io/local-radio-stream/demo.html)
+
+
 This is a **personal-use-only radio streaming application** combining a **PHP/MySQL backend** with a **JavaScript/HTML5 frontend**. It enables users to:
 - Stream MP3 files from a local server
 - Upload music with metadata (title, artist, lyrics, cover art)
