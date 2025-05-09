@@ -78,7 +78,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 3. **Non-Commercial Use**: This Software may not be used for commercial purposes (monetized websites, apps, or services).
 4. **No Warranty**: The Software is provided "as is" without warranty of any kind.
 
-For full license text see [LICENSE](LICENSE).
+For full license text see [LICENSE](LICENSE.md).
 
 ---
 
