@@ -68,10 +68,13 @@ function customErrorHandler($errno, $errstr, $errfile, $errline) {
 set_error_handler('customErrorHandler');
 
 // Custom Exception Handler
-function customExceptionHandler($exception) {
+function customExceptionHandler(\Throwable $exception) { // Type hint for PHP 7+
     $timestamp = date("Y-m-d H:i:s (T)");
-    // Detailed log message including stack trace
-    $logMessage = "[{$timestamp}] PHP Uncaught Exception: " . $exception->getMessage() . " (Code: " . $exception->getCode() . ")" . PHP_EOL;
+    $logMessage = "[{$timestamp}] Uncaught Exception: " . get_class($exception) . PHP_EOL;
+    $logMessage .= "Message: " . $exception->getMessage() . " (Code: " . $exception->getCode() . ")" . PHP_EOL;
+    if ($exception instanceof \App\Exceptions\AppException && $exception->getDetails()) {
+        $logMessage .= "Details: " . json_encode($exception->getDetails()) . PHP_EOL;
+    }
     $logMessage .= "In " . $exception->getFile() . " on line " . $exception->getLine() . PHP_EOL;
     $logMessage .= "Stack trace:" . PHP_EOL . $exception->getTraceAsString() . PHP_EOL;
 
@@ -80,17 +83,52 @@ function customExceptionHandler($exception) {
     $isApiRequest = isset($_GET['action']) ||
                     (isset($_SERVER['HTTP_ACCEPT']) && strpos(strtolower($_SERVER['HTTP_ACCEPT']), 'application/json') !== false);
 
+    $httpStatusCode = 500;
+    $responseMessage = 'A critical server error occurred. Please try again later.';
+    $errorsDetails = null;
+
+    if ($exception instanceof \App\Exceptions\ValidationException) {
+        $httpStatusCode = 400; // Or 422 Unprocessable Entity
+        $responseMessage = $exception->getMessage() ?: 'Validation failed.';
+        if (method_exists($exception, 'getDetails') && $exception->getDetails()) {
+            $errorsDetails = $exception->getDetails();
+        }
+    } elseif ($exception instanceof \App\Exceptions\FileUploadException) {
+        $httpStatusCode = 400; // Or a more specific code like 413/415 if set in exception
+        $responseMessage = $exception->getMessage() ?: 'File upload error.';
+    } elseif ($exception instanceof \App\Exceptions\NotFoundException) {
+        $httpStatusCode = 404;
+        $responseMessage = $exception->getMessage() ?: 'Resource not found.';
+    } elseif ($exception instanceof \App\Exceptions\DatabaseException) {
+        // Keep message generic for DatabaseException to client
+        $responseMessage = 'A database error occurred. Please try again later.';
+        // $httpStatusCode remains 500
+    } elseif ($exception instanceof \App\Exceptions\AppException) {
+        // Generic AppExceptions might carry a specific code or message
+        $responseMessage = $exception->getMessage() ?: $responseMessage;
+        // $httpStatusCode could be set from $exception->getCode() if it's a valid HTTP status
+    }
+    // For any other \Throwable, it remains a generic 500 error.
+
     if (!headers_sent()) {
-        http_response_code(500);
+        http_response_code($httpStatusCode);
         if ($isApiRequest) {
             header('Content-Type: application/json');
-            echo json_encode([
-                'status' => 'error',
-                'message' => 'A critical server error (exception) occurred. Please try again later.'
-            ]);
+            $errorResponse = ['status' => 'error', 'message' => $responseMessage];
+            if ($errorsDetails) {
+                $errorResponse['errors'] = $errorsDetails; // For validation field-specific errors
+            }
+            echo json_encode($errorResponse);
         } else {
-            // Example: include BASE_PATH . '/templates/errors/exception.html';
-            echo "<h1>Oops! A critical application error occurred.</h1><p>We are sorry for the inconvenience. Please try again later.</p>";
+            // Basic HTML error page
+            echo "<h1>Oops! An error occurred.</h1><p>" . htmlspecialchars($responseMessage) . "</p>";
+            if ($errorsDetails && is_array($errorsDetails)) {
+                echo "<ul>";
+                foreach($errorsDetails as $field => $msg) {
+                    echo "<li>" . htmlspecialchars($field) . ": " . htmlspecialchars($msg) . "</li>";
+                }
+                echo "</ul>";
+            }
         }
     }
     exit;

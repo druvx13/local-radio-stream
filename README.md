@@ -216,9 +216,9 @@ LimitRequestBody 104857600
 ## 🎵 Core Features
 
 ### 1. Music Streaming System
-- **MP3-only support** with browser-native `<audio>` element
-- **Progressive loading** with time/duration display
-- **Bitrate detection** (default: 128kbps)
+- **Multi-format audio support** (MP3, AAC, M4A, OGG) with browser-native `<audio>` element.
+- **Progressive loading** with time/duration display.
+- **Bitrate detection** (default: 128kbps, primarily for MP3s; other formats may vary).
 
 ### 2. Playlist Management
 - **Reverse chronological display** (`ORDER BY uploaded_at DESC`).
@@ -229,7 +229,7 @@ LimitRequestBody 104857600
 - **Repeat mode** with single-track loop.
 
 ### 3. Upload System
-- **MP3 validation** by file extension and server-side MIME type check (`audio/mpeg`).
+- **Audio format validation:** Supports MP3, AAC, M4A (AAC in MP4), and OGG. Validation includes file extension and server-side MIME type checks (e.g., `audio/mpeg`, `audio/aac`, `audio/mp4`, `audio/ogg`).
 - **Cover art support** (JPG/PNG/GIF) with server-side MIME type check.
 - **Automatic server-side optimization** (resize & compress) of uploaded cover art to save storage and improve loading times (requires GD library).
 - **Filename sanitization** for uploaded files.
@@ -396,7 +396,7 @@ The application uses a simple routing mechanism via `public/index.php` with an `
     -   `title` (text, optional - defaults from filename)
     -   `artist` (text, optional - defaults to "Unknown Artist")
     -   `lyrics` (text, optional)
-    -   `song` (file, required, MP3)
+    - `song` (file, required, MP3/AAC/M4A/OGG)
     -   `cover` (file, optional, JPG/PNG/GIF)
     -   `csrf_token` (hidden, required)
 -   **Success Response (201 Created):**
@@ -410,7 +410,16 @@ The application uses a simple routing mechanism via `public/index.php` with an `
     }
     ```
 -   **Error Responses:**
-    -   `400 Bad Request`: Validation errors (e.g., missing fields, invalid file type/size, text too long).
+    -   `400 Bad Request`: Validation errors. The response may include an `errors` object with field-specific messages:
+        ```json
+        {
+            "status": "error",
+            "message": "Validation failed.",
+            "errors": {
+                "title": "Title cannot exceed 255 characters."
+            }
+        }
+        ```
     -   `403 Forbidden`: CSRF token failure.
     -   `413 Payload Too Large`: File size exceeds limits.
     -   `415 Unsupported Media Type`: Invalid file MIME type.
@@ -440,7 +449,7 @@ The application uses a simple routing mechanism via `public/index.php` with an `
     }
     ```
 -   **Error Responses:**
-    -   `400 Bad Request`: Validation errors (e.g., missing fields, invalid song_id, text too long).
+    -   `400 Bad Request`: Validation errors. The response may include an `errors` object with field-specific messages (similar to Upload Song endpoint).
     -   `403 Forbidden`: CSRF token failure.
     -   `404 Not Found`: If `song_id` does not exist.
     -   `500 Internal Server Error`: Server-side processing errors.

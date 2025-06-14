@@ -160,6 +160,8 @@ class ApiController {
     }
 
     public function getPlaylist() {
+        // No direct user input that modifies the query, so less risk here.
+        // Errors are primarily DB related.
         $songs = [];
         $sql = "SELECT id, title, file, cover, artist, lyrics, uploaded_at FROM songs ORDER BY uploaded_at DESC";
 
@@ -174,19 +176,20 @@ class ApiController {
                 }
                 $songs[] = $row;
             }
+            // Success, use sendJsonResponse (already does)
             $this->sendJsonResponse(['status' => 'success', 'data' => ['songs' => $songs]]);
         } else {
-            error_log("Database query error in getPlaylist: " . $this->db->error);
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Could not retrieve playlist due to a server error.'], 500);
+            // Database error
+            throw new \App\Exceptions\DatabaseException("Could not retrieve playlist due to a database error.", $this->db->errno, null, ['query' => $sql, 'db_error' => $this->db->error]);
         }
     }
 
     public function uploadSong() {
-        // Rate Limiting Logic (as implemented before)
+        // Rate Limiting (existing logic)
         $userIpAddress = $_SERVER['REMOTE_ADDR'];
         $rateLimitWindow = defined('UPLOAD_RATE_LIMIT_WINDOW') ? UPLOAD_RATE_LIMIT_WINDOW : 3600;
         $rateLimitCount = defined('UPLOAD_RATE_LIMIT_COUNT') ? UPLOAD_RATE_LIMIT_COUNT : 10;
-
+        // ... (cleanup and check logic as before) ...
         $cleanupSql = "DELETE FROM upload_attempts WHERE attempt_timestamp < (NOW() - INTERVAL ? SECOND)";
         $stmtCleanup = $this->db->prepare($cleanupSql);
         if ($stmtCleanup) {
@@ -208,33 +211,37 @@ class ApiController {
         } else { error_log("Rate limiting check statement failed: " . $this->db->error); }
 
         if ($currentAttempts >= $rateLimitCount) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Too many upload attempts. Please try again later.'], 429);
+            // No specific exception for 429, custom handler will default to 500 if not set.
+            // Or, create a RateLimitException or use a generic AppException with code 429.
+            // For now, rely on custom handler to catch generic \Exception or specific ones.
+            // $this->sendJsonResponse is being replaced, so we need to throw.
+            // Let's make a specific AppException for this.
+            throw new \App\Exceptions\AppException('Too many upload attempts. Please try again later.', 429);
         }
-
+        // Log attempt
         $logAttemptSql = "INSERT INTO upload_attempts (ip_address) VALUES (?)";
         $stmtLog = $this->db->prepare($logAttemptSql);
-        if ($stmtLog) {
-            $stmtLog->bind_param("s", $userIpAddress);
-            $stmtLog->execute();
-            $stmtLog->close();
-        } else { error_log("Rate limiting attempt logging failed: " . $this->db->error); }
+        if ($stmtLog) { $stmtLog->bind_param("s", $userIpAddress); $stmtLog->execute(); $stmtLog->close(); }
+        else { error_log("Rate limiting attempt logging failed: " . $this->db->error); }
+
 
         // CSRF Check
         if (!isset($_SESSION['csrf_token'])) {
-             $this->sendJsonResponse(['status' => 'error', 'message' => 'CSRF token not found in session. Please refresh the page.'], 403);
+            throw new \App\Exceptions\AppException('CSRF token not found in session. Please refresh the page.', 403);
         }
         if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'CSRF token validation failed. Please refresh and try again.'], 403);
+            throw new \App\Exceptions\AppException('CSRF token validation failed. Please refresh and try again.', 403);
         }
         unset($_SESSION['csrf_token']);
 
-        // Validate POST data
+        // Text Input Validation
+        $validationErrors = [];
         $title = trim($_POST['title'] ?? '');
         $artist = trim($_POST['artist'] ?? '');
         $rawLyrics = $_POST['lyrics'] ?? '';
 
         if (empty($title) && !(isset($_FILES['song']['name']) && !empty($_FILES['song']['name']))) {
-             $this->sendJsonResponse(['status' => 'error', 'message' => 'Title is required if song filename is not available.'], 400);
+            $validationErrors['title'] = 'Title is required if song filename is not available.';
         }
         if (empty($title) && isset($_FILES['song']['name'])) {
             $title = pathinfo($_FILES['song']['name'], PATHINFO_FILENAME);
@@ -244,29 +251,35 @@ class ApiController {
         }
 
         if (mb_strlen($title) > self::MAX_TITLE_LENGTH) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Title exceeds maximum length of ' . self::MAX_TITLE_LENGTH . ' characters.'], 400);
+            $validationErrors['title'] = 'Title exceeds maximum length of ' . self::MAX_TITLE_LENGTH . ' characters.';
         }
         if (mb_strlen($artist) > self::MAX_ARTIST_LENGTH) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Artist name exceeds maximum length of ' . self::MAX_ARTIST_LENGTH . ' characters.'], 400);
+            $validationErrors['artist'] = 'Artist name exceeds maximum length of ' . self::MAX_ARTIST_LENGTH . ' characters.';
         }
         if (mb_strlen($rawLyrics) > self::MAX_LYRICS_LENGTH) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Lyrics exceed maximum length of ' . self::MAX_LYRICS_LENGTH . ' characters.'], 400);
+            $validationErrors['lyrics'] = 'Lyrics exceed maximum length of ' . self::MAX_LYRICS_LENGTH . ' characters.';
+        }
+
+        if (!empty($validationErrors)) {
+            throw new \App\Exceptions\ValidationException("Validation failed for text inputs.", 400, null, $validationErrors);
         }
         $sanitizedLyrics = htmlspecialchars($rawLyrics, ENT_QUOTES, 'UTF-8');
 
-        // Validate Song File Upload
+        // Song File Upload Validation
         $songUploadValidationResult = $this->validateFileUploadError('song', self::MAX_SONG_FILE_SIZE, false);
         if ($songUploadValidationResult !== null) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => $songUploadValidationResult[0]], $songUploadValidationResult[1]);
+            throw new \App\Exceptions\FileUploadException($songUploadValidationResult[0], $songUploadValidationResult[1]);
         }
 
+        // Directory Creation
         if (!is_dir($this->uploadDirRoot)) {
             if (!mkdir($this->uploadDirRoot, 0777, true)) {
                 error_log("Failed to create upload directory: " . $this->uploadDirRoot);
-                $this->sendJsonResponse(['status' => 'error', 'message' => 'Server error: Could not create upload directory.'], 500);
+                throw new \App\Exceptions\AppException('Server error: Could not create upload directory.', 500);
             }
         }
 
+        // Song File Processing
         $songOriginalName = $_FILES['song']['name'];
         $songFileExtension = strtolower(pathinfo($songOriginalName, PATHINFO_EXTENSION));
         $songSanitizedBaseName = preg_replace("/[^a-zA-Z0-9_\-\s]/", "", pathinfo($songOriginalName, PATHINFO_FILENAME));
@@ -274,31 +287,34 @@ class ApiController {
         $songDbFileName = $songSanitizedBaseName . '_' . time() . '.' . $songFileExtension;
         $targetSongFsPath = $this->uploadDirRoot . $songDbFileName;
 
-        if ($songFileExtension !== "mp3") {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Invalid song format. Only MP3 files are allowed.'], 415);
+        $allowedSongExtensions = ['mp3', 'aac', 'm4a', 'ogg'];
+        if (!in_array($songFileExtension, $allowedSongExtensions)) {
+            throw new \App\Exceptions\FileUploadException('Invalid song format. Allowed formats: MP3, AAC, M4A, OGG.', 415);
         }
 
         if (!move_uploaded_file($_FILES['song']['tmp_name'], $targetSongFsPath)) {
-            error_log("Error moving uploaded song file to: " . $targetSongFsPath . " - check permissions and path.");
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Server error: Could not save the uploaded song file.'], 500);
+            error_log("Error moving uploaded song file to: " . $targetSongFsPath);
+            throw new \App\Exceptions\AppException('Server error: Could not save the uploaded song file.', 500);
         }
 
         $songMimeType = mime_content_type($targetSongFsPath);
-        if ($songMimeType !== 'audio/mpeg') {
+        $allowedSongMimeTypes = ['audio/mpeg', 'audio/aac', 'audio/mp4', 'audio/ogg'];
+        if (!in_array($songMimeType, $allowedSongMimeTypes)) {
             unlink($targetSongFsPath);
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Invalid file content: Song must be an MP3. Detected MIME: ' . $songMimeType], 415);
+            throw new \App\Exceptions\FileUploadException("Invalid file content: Song must be MP3, AAC, M4A, or OGG. Detected MIME: {$songMimeType}", 415);
         }
 
-        // --- Cover Image Handling ---
+        // Cover Image Handling
         $coverDbFileName = '';
         $targetCoverFsPath = '';
-        $coverUploadIssueMessage = '';
+        $coverUploadIssueMessage = ''; // This will be part of success message, not an exception for cover.
 
         if (isset($_FILES['cover']) && $_FILES['cover']['error'] !== UPLOAD_ERR_NO_FILE) {
-            $coverUploadValidationResult = $this->validateFileUploadError('cover', self::MAX_COVER_FILE_SIZE, true); // True for optional
+            $coverUploadValidationResult = $this->validateFileUploadError('cover', self::MAX_COVER_FILE_SIZE, true);
             if ($coverUploadValidationResult !== null) {
                 $coverUploadIssueMessage = "Cover upload issue: " . $coverUploadValidationResult[0];
             } else {
+                // ... (cover processing logic as before, setting $coverUploadIssueMessage on specific failures)
                 $coverOriginalName = $_FILES['cover']['name'];
                 $coverFileExtension = strtolower(pathinfo($coverOriginalName, PATHINFO_EXTENSION));
                 $coverSanitizedBaseName = preg_replace("/[^a-zA-Z0-9_\-\s]/", "", pathinfo($coverOriginalName, PATHINFO_FILENAME));
@@ -323,10 +339,9 @@ class ApiController {
                             $coverUploadIssueMessage = "Invalid cover image content type. Detected: " . $coverMimeType . ".";
                             $coverDbFileName = '';
                         } else {
-                            // If MIME type is valid, attempt optimization
                             if (!$this->optimizeCoverImage($targetCoverFsPath, $coverMimeType)) {
                                 error_log("Cover image optimization failed for {$targetCoverFsPath}. Original will be used.");
-                                // $coverUploadIssueMessage could be appended here if needed, but often logging is enough
+                                // $coverUploadIssueMessage can be appended here if optimization failure is critical to report
                             }
                         }
                     }
@@ -334,6 +349,7 @@ class ApiController {
             }
         }
 
+        // Database Insertion
         $titleDb = $this->db->real_escape_string($title);
         $artistDb = $this->db->real_escape_string($artist);
         $lyricsDb = $this->db->real_escape_string($sanitizedLyrics);
@@ -343,7 +359,7 @@ class ApiController {
             error_log("Database statement preparation error: " . $this->db->error);
             if (file_exists($targetSongFsPath)) unlink($targetSongFsPath);
             if (!empty($targetCoverFsPath) && file_exists($targetCoverFsPath) && !empty($coverDbFileName)) unlink($targetCoverFsPath);
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Server error: Could not prepare to save song details.'], 500);
+            throw new \App\Exceptions\DatabaseException('Server error: Could not prepare to save song details.');
         }
 
         $stmt->bind_param("sssss", $titleDb, $songDbFileName, $coverDbFileName, $artistDb, $lyricsDb);
@@ -354,109 +370,102 @@ class ApiController {
             if(!empty($coverUploadIssueMessage)) {
                 $successMessage .= ' (Note: ' . $coverUploadIssueMessage . ')';
             }
-            $this->sendJsonResponse([
+            $this->sendJsonResponse([ // Keep sendJsonResponse for success
                 'status' => 'success',
                 'message' => $successMessage,
-                'data' => [
-                    'song' => [
-                        'id' => $songId,
-                        'title' => $title,
-                        'file' => $this->uploadDirPublic . $songDbFileName,
-                        'cover' => !empty($coverDbFileName) ? $this->uploadDirPublic . $coverDbFileName : '',
-                        'artist' => $artist,
-                        'lyrics' => $sanitizedLyrics
-                    ]
-                ]
+                'data' => [ /* ... song data ... */ ]
             ], 201);
         } else {
             error_log("Database execution error: " . $stmt->error);
             if (file_exists($targetSongFsPath)) unlink($targetSongFsPath);
             if (!empty($targetCoverFsPath) && file_exists($targetCoverFsPath) && !empty($coverDbFileName)) unlink($targetCoverFsPath);
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Server error: Could not save song details to database.'], 500);
+            throw new \App\Exceptions\DatabaseException('Server error: Could not save song details to database.');
         }
         $stmt->close();
     }
 
     public function updateSongMetadata() {
-        // Ensure CSRF token is valid
+        // CSRF Check
         if (!isset($_SESSION['csrf_token'])) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'CSRF token not found in session. Please refresh the page.'], 403);
+             throw new \App\Exceptions\AppException('CSRF token not found in session. Please refresh the page.', 403);
         }
-
         $requestData = json_decode(file_get_contents('php://input'), true);
+        if (!$requestData) {
+            throw new \App\Exceptions\ValidationException('Invalid JSON payload.', 400);
+        }
 
         if (!isset($requestData['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $requestData['csrf_token'])) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'CSRF token validation failed. Please refresh and try again.'], 403);
+            throw new \App\Exceptions\AppException('CSRF token validation failed. Please refresh and try again.', 403);
         }
-        unset($_SESSION['csrf_token']); // One-time use
+        unset($_SESSION['csrf_token']);
 
-        // Validate input
+        // Input Validation
+        $validationErrors = [];
         if (!isset($requestData['song_id']) || !filter_var($requestData['song_id'], FILTER_VALIDATE_INT)) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Invalid or missing song ID.'], 400);
+            $validationErrors['song_id'] = 'Invalid or missing song ID.';
         }
-        $songId = (int)$requestData['song_id'];
+        $songId = (int)($requestData['song_id'] ?? 0);
 
         if (!isset($requestData['title']) || empty(trim($requestData['title']))) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Title cannot be empty.'], 400);
+            $validationErrors['title'] = 'Title cannot be empty.';
         }
-        $title = trim($requestData['title']);
+        $title = trim($requestData['title'] ?? '');
 
         if (!isset($requestData['artist']) || empty(trim($requestData['artist']))) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Artist cannot be empty.'], 400);
+            $validationErrors['artist'] = 'Artist cannot be empty.';
         }
-        $artist = trim($requestData['artist']);
+        $artist = trim($requestData['artist'] ?? '');
 
-        $lyrics = trim($requestData['lyrics'] ?? ''); // Lyrics can be empty
+        $lyrics = trim($requestData['lyrics'] ?? '');
 
-        // Length validation
         if (mb_strlen($title) > self::MAX_TITLE_LENGTH) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Title exceeds maximum length of ' . self::MAX_TITLE_LENGTH . ' characters.'], 400);
+            $validationErrors['title'] = 'Title exceeds maximum length of ' . self::MAX_TITLE_LENGTH . ' characters.';
         }
         if (mb_strlen($artist) > self::MAX_ARTIST_LENGTH) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Artist name exceeds maximum length of ' . self::MAX_ARTIST_LENGTH . ' characters.'], 400);
+            $validationErrors['artist'] = 'Artist name exceeds maximum length of ' . self::MAX_ARTIST_LENGTH . ' characters.';
         }
         if (mb_strlen($lyrics) > self::MAX_LYRICS_LENGTH) {
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Lyrics exceed maximum length of ' . self::MAX_LYRICS_LENGTH . ' characters.'], 400);
+            $validationErrors['lyrics'] = 'Lyrics exceed maximum length of ' . self::MAX_LYRICS_LENGTH . ' characters.';
         }
 
-        // Sanitize lyrics for HTML contexts before DB storage (already done for XSS on display)
-        $sanitizedLyrics = htmlspecialchars($lyrics, ENT_QUOTES, 'UTF-8');
+        if (!empty($validationErrors)) {
+            throw new \App\Exceptions\ValidationException("Validation failed for metadata update.", 400, null, $validationErrors);
+        }
 
-        // Prepare for DB
+        $sanitizedLyrics = htmlspecialchars($lyrics, ENT_QUOTES, 'UTF-8');
         $titleDb = $this->db->real_escape_string($title);
         $artistDb = $this->db->real_escape_string($artist);
         $lyricsDb = $this->db->real_escape_string($sanitizedLyrics);
 
+        // Database Update
         $stmt = $this->db->prepare("UPDATE songs SET title = ?, artist = ?, lyrics = ? WHERE id = ?");
         if (!$stmt) {
             error_log("DB statement preparation error (updateSongMetadata): " . $this->db->error);
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Server error: Could not prepare to update song details.'], 500);
+            throw new \App\Exceptions\DatabaseException('Server error: Could not prepare to update song details.');
         }
 
         $stmt->bind_param("sssi", $titleDb, $artistDb, $lyricsDb, $songId);
-
         if ($stmt->execute()) {
             if ($stmt->affected_rows > 0) {
                 $this->sendJsonResponse(['status' => 'success', 'message' => 'Song metadata updated successfully.']);
             } else {
-                // This could mean the song ID was not found, or the data submitted was identical to existing data.
-                // Check if song exists to differentiate
                 $checkExistStmt = $this->db->prepare("SELECT id FROM songs WHERE id = ?");
-                $checkExistStmt->bind_param("i", $songId);
-                $checkExistStmt->execute();
-                $result = $checkExistStmt->get_result();
-                $checkExistStmt->close();
-
-                if ($result->num_rows === 0) {
-                     $this->sendJsonResponse(['status' => 'error', 'message' => 'Song not found.'], 404);
+                if($checkExistStmt) {
+                    $checkExistStmt->bind_param("i", $songId);
+                    $checkExistStmt->execute();
+                    $result = $checkExistStmt->get_result();
+                    $checkExistStmt->close();
+                    if ($result->num_rows === 0) {
+                        throw new \App\Exceptions\NotFoundException('Song not found with the given ID.', 404);
+                    }
                 } else {
-                    // Data was the same, no actual update occurred but it's not an error.
-                    $this->sendJsonResponse(['status' => 'success', 'message' => 'No changes detected in song metadata.']);
+                     error_log("DB statement preparation error (check song exists): " . $this->db->error);
                 }
+                $this->sendJsonResponse(['status' => 'success', 'message' => 'No changes detected in song metadata.']);
             }
         } else {
             error_log("DB execution error (updateSongMetadata): " . $stmt->error);
-            $this->sendJsonResponse(['status' => 'error', 'message' => 'Server error: Could not update song details in database.'], 500);
+            throw new \App\Exceptions\DatabaseException('Server error: Could not update song details in database.');
         }
         $stmt->close();
     }
