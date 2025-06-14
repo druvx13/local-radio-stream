@@ -3,12 +3,25 @@ AddDefaultCharset UTF-8
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    # If your site is running in a subdirectory (e.g., localhost/myproject/),
-    # you might need to set RewriteBase. If public/ is the document root,
-    # RewriteBase / should be correct.
+    # If your site is in a subdirectory, adjust this:
     RewriteBase /
 
-    # Route all non-file/directory requests to this directory's index.php
+    ########################################
+    # 1) Serve “extensionless” .php files  #
+    ########################################
+
+    # If the requested URL is not a real file or directory…
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    # …but adding “.php” makes a valid filename…
+    RewriteCond %{REQUEST_FILENAME}\.php -f
+    # …then internally rewrite /foo → /foo.php
+    RewriteRule ^(.+?)/?$ $1.php [L,QSA]
+
+    #################################################
+    # 2) Your existing “single‑entry” / index.php rule
+    #################################################
+    # Route all other non-file/directory requests to index.php
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^(.*)$ index.php [QSA,L]
@@ -18,9 +31,7 @@ AddDefaultCharset UTF-8
 Options -Indexes
 
 # PHP Settings
-# Note: These settings can often be configured via your hosting control panel,
-# which may override .htaccess directives.
-<IfModule mod_php.c> # Changed from mod_php7.c for broader compatibility
+<IfModule mod_php.c>
     php_value upload_max_filesize 64M
     php_value post_max_size 64M
     php_value max_execution_time 300
@@ -41,17 +52,6 @@ Options -Indexes
     Header set X-Frame-Options "SAMEORIGIN"
     Header set Referrer-Policy "strict-origin-when-cross-origin"
     Header set Permissions-Policy "geolocation=(), microphone=(), camera=(), midi=(), sync-xhr=(), magnetometer=(), gyroscope=(), payment=()"
-    # Content-Security-Policy:
-    # default-src 'self': Allows content from the application's own origin.
-    # script-src 'self': Allows scripts from 'self'. No 'unsafe-inline' or 'unsafe-eval'.
-    # style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com: Allows stylesheets from 'self' (e.g. /assets/css/style.css),
-    #   jsdelivr.net (for Tailwind static CSS), and cdnjs.cloudflare.com (for FontAwesome CSS). No 'unsafe-inline'.
-    # font-src 'self' https://cdnjs.cloudflare.com: Allows fonts from 'self' and cdnjs (for FontAwesome).
-    # img-src 'self' data: blob: /uploads/: Allows images from 'self', data URIs, blob URIs, and from the /uploads/ directory.
-    # media-src 'self' blob: /uploads/: Allows audio/video from 'self', blob URIs, and from the /uploads/ directory.
-    # object-src 'none': Disallows plugins like Flash.
-    # frame-ancestors 'self': Prevents clickjacking by disallowing embedding in iframes from other origins.
-    # connect-src 'self': Allows XHR/fetch requests to the application's own origin (for API calls).
     Header set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com; img-src 'self' data: blob: /uploads/; media-src 'self' blob: /uploads/; object-src 'none'; frame-ancestors 'self'; connect-src 'self';"
 </IfModule>
 
@@ -72,16 +72,11 @@ Options -Indexes
     AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css application/x-javascript application/javascript application/json
 </IfModule>
 
-# Security: Disallow remote access to sensitive files
-# This rule is important. If .htaccess is in public/, and sensitive files like
-# db_config.php are outside public/ (e.g., in project root), this rule in public/.htaccess
-# won't protect them. Protection for files outside the webroot must be handled by server config
-# or by ensuring they are not web accessible.
-# This rule here would protect such files if they were *inside* the public directory.
+# Disallow remote access to sensitive files
 <FilesMatch "\.(env|ini|log|sql|bak|sh|config\.php)$">
     Order Allow,Deny
     Deny from all
 </FilesMatch>
 
-# Security: Limit file uploads (100MB max request size)
+# Limit file uploads (100MB max request size)
 LimitRequestBody 104857600
