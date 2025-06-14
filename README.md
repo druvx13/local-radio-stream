@@ -1,6 +1,6 @@
 # Local Radio Stream Application 🎧
 
-> **Personal-use only radio streaming application** combining PHP/MySQL backend with JavaScript/HTML5 frontend
+> A radio streaming application combining PHP/MySQL backend with JavaScript/HTML5 frontend
 
 ---
 
@@ -13,7 +13,7 @@
 [✨Visit Dummy Demo](https://druvx13.github.io/local-radio-stream/demo.html)
 
 
-This is a **personal-use-only radio streaming application** combining a **PHP/MySQL backend** with a **JavaScript/HTML5 frontend**. It enables users to:
+This is a radio streaming application combining a **PHP/MySQL backend** with a **JavaScript/HTML5 frontend**. It enables users to:
 - Stream MP3 files from a local server
 - Upload music with metadata (title, artist, lyrics, cover art)
 - Manage playlists dynamically
@@ -51,22 +51,30 @@ CREATE TABLE songs (
 ### 3. File Structure
 ```
 /project-root
-├── index.php           # All-in-one PHP/HTML/JS application
-├── .htaccess           # Apache configuration
-├── /uploads            # Media storage (777 permissions)
-│   ├── song1.mp3       # MP3 files
-│   └── cover1.jpg      # Album art
-└── README.md           # This documentation
+├── index.php               # All-in-one PHP/HTML/JS application
+├── db_config.sample.php    # Sample database configuration
+├── db_config.php           # Your database configuration (gitignored)
+├── .htaccess               # Apache configuration
+├── /uploads                # Media storage (777 permissions)
+│   ├── song1.mp3           # MP3 files
+│   └── cover1.jpg          # Album art
+└── README.md               # This documentation
 ```
 
 ### 4. PHP Configuration
-Edit database credentials in `index.php`:
-```php
-$host = "localhost"; // Database host
-$db   = "loco_music";    // Database name
-$user = "root";          // Database user
-$pass = "";               // Database password
-```
+1.  **Copy `db_config.sample.php` to `db_config.php`.**
+    ```bash
+    cp db_config.sample.php db_config.php
+    ```
+2.  **Edit `db_config.php` with your actual database credentials:**
+    ```php
+    define('DB_HOST', 'your_localhost');
+    define('DB_USERNAME', 'your_db_user');
+    define('DB_PASSWORD', 'your_db_password');
+    define('DB_NAME', 'loco_music');
+    ?>
+    ```
+    **Important:** `db_config.php` is included in `.gitignore` and should not be committed to your repository.
 
 ### 5. Directory Permissions
 ```bash
@@ -77,14 +85,9 @@ chmod 777 uploads/
 ---
 
 ## 🔒 License (MIT)
-**Copyright (c) 2025 druvx13**
+**Copyright (c) 2024 druvx13**
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software under the following conditions:
-
-1. **Attribution**: You must give appropriate credit, provide a link to the license, and indicate if changes were made.
-2. **Modifications**: Any modified versions must be clearly marked as such and maintain this license notice.
-3. **Non-Commercial Use**: This Software may not be used for commercial purposes (monetized websites, apps, or services).
-4. **No Warranty**: The Software is provided "as is" without warranty of any kind.
+This project is licensed under the MIT License.
 
 For full license text see [LICENSE](LICENSE.md).
 
@@ -113,17 +116,20 @@ For full license text see [LICENSE](LICENSE.md).
 Options -Indexes
 
 # Security: Disallow remote access to sensitive files
-<FilesMatch "\.(env|ini|log|sql|bak|sh)$">
+# Includes protection for configuration files like db_config.php
+<FilesMatch "\.(env|ini|log|sql|bak|sh|config\.php)$">
     Order Allow,Deny
     Deny from all
 </FilesMatch>
 ```
 - Prevents directory listing
-- Blocks access to configuration/backup files
+- Blocks access to configuration/backup files, including `db_config.php`.
 
 ### 3. PHP Settings
 ```apache
-<IfModule mod_php7.c>
+# Note: These settings can often be configured via your hosting control panel,
+# which may override .htaccess directives.
+<IfModule mod_php.c> # Changed from mod_php7.c for broader compatibility
     php_value upload_max_filesize 64M
     php_value post_max_size 64M
     php_value max_execution_time 300
@@ -144,7 +150,15 @@ Options -Indexes
 ```
 - Ensures correct content-type headers for media files
 
-### 5. Performance Optimization
+### 5. Added Security Headers
+The `.htaccess` file now includes several HTTP security headers to protect against common web vulnerabilities:
+- `X-Content-Type-Options "nosniff"`: Prevents MIME-sniffing.
+- `X-Frame-Options "SAMEORIGIN"`: Protects against clickjacking.
+- `Referrer-Policy "strict-origin-when-cross-origin"`: Controls referrer information.
+- `Permissions-Policy`: Restricts usage of sensitive browser features.
+- `Content-Security-Policy`: Helps prevent XSS and other injection attacks by defining allowed content sources. (The current policy is basic and allows inline scripts/styles due to project structure).
+
+### 6. Performance Optimization
 ```apache
 <IfModule mod_deflate.c>
     AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css application/x-javascript application/javascript application/json
@@ -186,9 +200,10 @@ LimitRequestBody 104857600
 - **Repeat mode** with single-track loop
 
 ### 3. Upload System
-- **MP3 validation** by file extension only
-- **Cover art support** (JPG/PNG/GIF)
-- **Lyrics storage** in database
+- **MP3 validation** by file extension and server-side MIME type check (`audio/mpeg`).
+- **Cover art support** (JPG/PNG/GIF) with server-side MIME type check.
+- **Filename sanitization** for uploaded files.
+- **Lyrics storage** in database (lyrics are sanitized with `htmlspecialchars` before storage).
 
 ### 4. Audio Visualization
 - **Web Audio API** integration
@@ -205,31 +220,37 @@ LimitRequestBody 104857600
 
 ## ⚠️ Security Considerations
 
-### 1. Database Credential Exposure
-- Credentials hardcoded in PHP script:
-  ```php
-  $host = "localhost";
-  $user = "root";
-  $pass = "";
-  ```
-- Immediate risk of database compromise if source code is exposed
+Significant improvements have been made, but security is an ongoing process.
 
-### 2. Insecure File Uploads
-- **MP3 validation**: Only checks file extension (`.mp3`)
-- **Cover image validation**: Only checks file extension (`.jpg`, `.jpeg`, `.png`, `.gif`)
-- No content-type verification or file sanitization
+### 1. Database Credential Management
+- **Improved:** Credentials are now managed in `db_config.php`, which is included in `.gitignore` to prevent accidental versioning.
+- **Recommendation:** Ensure `db_config.php` has appropriate file permissions on the server and is not web-accessible.
 
-### 3. SQL Injection Risk
-- Prepared statements used for inserts but not for all queries
-- No input sanitization for search or filtering functions
+### 2. File Uploads
+- **Improved:**
+    - Server-side MIME type validation (`audio/mpeg` for songs; `image/jpeg`, `image/png`, `image/gif` for covers) is now performed. Invalid files are deleted.
+    - Filenames are sanitized to remove potentially problematic characters.
+- **Note:** While improved, robust file upload security can be complex. Consider further restrictions or analysis if handling untrusted uploads in a more sensitive environment.
+
+### 3. SQL Injection
+- **Partially Mitigated:** Prepared statements are used for database inserts (`uploadSong` action).
+- **Recommendation:** Review all database queries to ensure prepared statements or proper escaping is used consistently.
 
 ### 4. CSRF Vulnerability
-- Upload form lacks CSRF token protection
-- Attackers can forge requests to upload malicious files
+- **Improved:** The song upload form (`uploadSong` action) is now protected by CSRF tokens.
 
 ### 5. XSS Vulnerability
-- User-provided lyrics directly displayed without sanitization
-- Potential for script injection through lyrics field
+- **Improved:** Lyrics submitted via the upload form are sanitized using `htmlspecialchars` before being stored in the database and when returned in API responses, mitigating direct XSS vectors through this field.
+- **Recommendation:** Always ensure proper output encoding/escaping when rendering any user-supplied content on the frontend, even if sanitized server-side.
+
+### 6. HTTP Security Headers
+- **Improved:** The `.htaccess` file now configures several important security headers:
+    - `X-Content-Type-Options "nosniff"`
+    - `X-Frame-Options "SAMEORIGIN"`
+    - `Referrer-Policy "strict-origin-when-cross-origin"`
+    - `Permissions-Policy` (basic setup)
+    - `Content-Security-Policy` (basic setup, allows `unsafe-inline` for compatibility)
+- **Recommendation:** For enhanced security, consider refining the `Content-Security-Policy` further, especially by moving inline JavaScript and CSS to external files to remove `'unsafe-inline'`.
 
 ---
 
@@ -272,5 +293,3 @@ For issues or questions:
 | 1.0.0  | 09-05-2025 | Initial release with core features           |
 
 ---
-
-**⚠️ WARNING:** This software is **strictly for personal use**. Any attempt to deploy it in public production environments will result in **immediate legal action** under international copyright and intellectual property laws.

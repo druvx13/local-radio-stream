@@ -6,7 +6,7 @@
     <meta name="google-site-verification" content="nZ7ArmGOiCVxeEnescb9PuByJPDO48qBKRp2ry90Ybc" />
     <title>Local Radio Stream Application - Installation Guide</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
         .gradient-bg {
             background: linear-gradient(135deg, #1e3a8a 0%, #7e22ce 50%, #ec4899 100%);
@@ -66,7 +66,7 @@
                 </div>
                 <div>
                     <h1 class="text-3xl font-bold">Local Radio Stream</h1>
-                    <p class="text-indigo-200">Personal-use only radio streaming application</p>
+                    <p class="text-indigo-200">A radio streaming application</p>
                 </div>
             </div>
             <div class="flex space-x-2">
@@ -149,7 +149,7 @@
                         <h2 class="text-2xl font-bold">Project Overview</h2>
                     </div>
                     <p class="mb-4 text-lg leading-relaxed">
-                        This is a <span class="font-semibold text-indigo-300">personal-use-only</span> radio streaming application combining a <span class="font-semibold text-pink-300">PHP/MySQL backend</span> with a <span class="font-semibold text-purple-300">JavaScript/HTML5 frontend</span>.
+                        This is a radio streaming application combining a <span class="font-semibold text-pink-300">PHP/MySQL backend</span> with a <span class="font-semibold text-purple-300">JavaScript/HTML5 frontend</span>.
                     </p>
                     
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
@@ -195,17 +195,15 @@
                     
                     <div class="mt-8 p-5 bg-gradient-to-r from-indigo-900/30 to-purple-900/30 rounded-lg border border-indigo-800">
                         <div class="flex items-center mb-3">
-                            <i class="fas fa-exclamation-triangle text-yellow-400 mr-2"></i>
+                            <i class="fas fa-id-badge text-yellow-400 mr-2"></i>
                             <h3 class="font-semibold">License Information (MIT)</h3>
                         </div>
                         <p class="mb-3 text-sm">
-                            This software is <span class="font-semibold">strictly for personal use</span>. Any attempt to deploy it in public production environments will result in immediate legal action under international copyright and intellectual property laws.
+                            This project is licensed under the MIT License. This means you are free to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, subject to the conditions outlined in the license.
                         </p>
-                        <div class="flex flex-wrap gap-2 text-xs">
-                            <span class="px-3 py-1 bg-indigo-800/50 rounded-full">Attribution Required</span>
-                            <span class="px-3 py-1 bg-purple-800/50 rounded-full">Non-Commercial</span>
-                            <span class="px-3 py-1 bg-pink-800/50 rounded-full">No Warranty</span>
-                        </div>
+                        <p class="text-sm">
+                            For the full license text, please see the <a href="../LICENSE.md" class="underline hover:text-pink-300" target="_blank" rel="noopener noreferrer">LICENSE.md</a> file in the main repository.
+                        </p>
                     </div>
                 </section>
 
@@ -351,22 +349,30 @@ USE loco_music;</code></pre>
                     
                     <div class="mb-6">
                         <h3 class="font-semibold text-lg mb-3 flex items-center">
-                            <i class="fas fa-database mr-2 text-blue-300"></i> Database Credentials
+                            <i class="fas fa-key mr-2 text-blue-300"></i> Database Credentials Setup
                         </h3>
-                        <div class="code-block p-4 rounded-lg overflow-x-auto">
-                            <pre><code class="text-sm">$host = "localhost"; // Database host
-$db   = "loco_music"; // Database name
-$user = "root";       // Database user
-$pass = "";           // Database password</code></pre>
+                        <p class="text-sm mb-2">Database credentials are now managed via a `db_config.php` file, separate from the main `index.php` script.</p>
+                        <ol class="list-decimal list-inside text-sm space-y-1 mb-3">
+                            <li>Locate the `db_config.sample.php` file in the project root.</li>
+                            <li>Create a copy of this file and name it `db_config.php`.
+                                <br><code class="code-block px-1 rounded text-xs">cp db_config.sample.php db_config.php</code>
+                            </li>
+                            <li>Open `db_config.php` and enter your actual database connection details (host, username, password, database name).</li>
+                        </ol>
+                        <div class="code-block p-4 rounded-lg overflow-x-auto mb-3">
+                            <pre><code class="text-sm">// Example content of db_config.php:
+define('DB_HOST', 'your_localhost');
+define('DB_USERNAME', 'your_db_user');
+define('DB_PASSWORD', 'your_db_password');
+define('DB_NAME', 'loco_music');</code></pre>
                         </div>
-                    </div>
-                    
-                    <div class="bg-red-900/30 p-4 rounded-lg border border-red-700">
-                        <div class="flex items-start">
-                            <i class="fas fa-exclamation-triangle mt-1 mr-2 text-red-300"></i>
-                            <div>
-                                <h3 class="font-semibold">Security Warning</h3>
-                                <p class="text-sm">Credentials are hardcoded in the PHP script. For production-like environments, consider using environment variables or a configuration file outside the web root.</p>
+                        <div class="bg-yellow-900/30 p-4 rounded-lg border border-yellow-700">
+                             <div class="flex items-start">
+                                <i class="fas fa-shield-alt mt-1 mr-2 text-yellow-300"></i>
+                                <div>
+                                    <h3 class="font-semibold">Important Security Note</h3>
+                                    <p class="text-sm">The `db_config.php` file is included in the project's `.gitignore` file. This is intentional to prevent your sensitive database credentials from being accidentally committed to a version control repository like Git. Keep your `db_config.php` file secure and do not share it publicly.</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -427,19 +433,19 @@ chmod 777 uploads/</code></pre>
                     <div class="mb-8">
                         <div class="flex items-center mb-3">
                             <span class="bg-indigo-600 text-white text-xs font-semibold px-2.5 py-0.5 rounded mr-2">2</span>
-                            <h3 class="font-semibold text-lg">Security Settings</h3>
+                            <h3 class="font-semibold text-lg">File Access Security</h3>
                         </div>
                         <div class="code-block p-4 rounded-lg overflow-x-auto">
                             <pre><code class="text-sm"># Disable directory browsing
 Options -Indexes
 
-# Disallow remote access to sensitive files
-&lt;FilesMatch "\.(env|ini|log|sql|bak|sh)$"&gt;
+# Disallow remote access to sensitive files (including db_config.php)
+&lt;FilesMatch "\.(env|ini|log|sql|bak|sh|config\.php)$"&gt;
     Order Allow,Deny
     Deny from all
 &lt;/FilesMatch&gt;</code></pre>
                         </div>
-                        <p class="text-sm mt-2">Prevents directory listing and blocks access to configuration/backup files.</p>
+                        <p class="text-sm mt-2">Prevents directory listing and blocks access to configuration/backup files, now explicitly including files like `db_config.php` through the `config\.php` pattern.</p>
                     </div>
                     
                     <div class="mb-8">
@@ -448,19 +454,37 @@ Options -Indexes
                             <h3 class="font-semibold text-lg">PHP Settings</h3>
                         </div>
                         <div class="code-block p-4 rounded-lg overflow-x-auto">
-                            <pre><code class="text-sm">&lt;IfModule mod_php7.c&gt;
+                            <pre><code class="text-sm"># Note: These settings can often be configured via your hosting control panel,
+# which may override .htaccess directives.
+&lt;IfModule mod_php.c&gt; # Uses mod_php.c for broader compatibility
     php_value upload_max_filesize 64M
     php_value post_max_size 64M
     php_value max_execution_time 300
     php_value max_input_time 300
 &lt;/IfModule&gt;</code></pre>
                         </div>
-                        <p class="text-sm mt-2">Configures PHP to allow large file uploads and increases execution time for upload processing.</p>
+                        <p class="text-sm mt-2">Configures PHP for file uploads. The directive `mod_php.c` is used for better compatibility across different PHP versions managed by Apache.</p>
                     </div>
-                    
+
                     <div class="mb-8">
                         <div class="flex items-center mb-3">
                             <span class="bg-indigo-600 text-white text-xs font-semibold px-2.5 py-0.5 rounded mr-2">4</span>
+                            <h3 class="font-semibold text-lg">HTTP Security Headers</h3>
+                        </div>
+                        <p class="text-sm mb-2">Several HTTP security headers have been added to enhance protection against common web vulnerabilities. These are configured within an <code>&lt;IfModule mod_headers.c&gt;</code> block:</p>
+                        <ul class="list-disc list-inside text-sm space-y-1 mb-2 pl-4">
+                            <li><strong>X-Content-Type-Options "nosniff":</strong> Prevents the browser from trying to guess the content type of a file, reducing risk of XSS attacks.</li>
+                            <li><strong>X-Frame-Options "SAMEORIGIN":</strong> Protects against clickjacking by preventing the page from being embedded in iframes from different origins.</li>
+                            <li><strong>Referrer-Policy "strict-origin-when-cross-origin":</strong> Controls how much referrer information is sent with requests, enhancing user privacy.</li>
+                            <li><strong>Permissions-Policy:</strong> Disables potentially sensitive browser features like geolocation, microphone, camera access by default.</li>
+                            <li><strong>Content-Security-Policy (CSP):</strong> A basic CSP is implemented to define allowed sources for scripts, styles, fonts, images, and media, mitigating XSS and data injection attacks. The current policy allows inline scripts/styles for compatibility but can be strengthened by moving these to external files.</li>
+                        </ul>
+                         <p class="text-sm mt-2">Example (snippet from the CSP): <code>Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com; ..."</code></p>
+                    </div>
+
+                    <div class="mb-8">
+                        <div class="flex items-center mb-3">
+                            <span class="bg-indigo-600 text-white text-xs font-semibold px-2.5 py-0.5 rounded mr-2">5</span>
                             <h3 class="font-semibold text-lg">MIME Types</h3>
                         </div>
                         <div class="code-block p-4 rounded-lg overflow-x-auto">
@@ -476,7 +500,7 @@ Options -Indexes
                     
                     <div>
                         <div class="flex items-center mb-3">
-                            <span class="bg-indigo-600 text-white text-xs font-semibold px-2.5 py-0.5 rounded mr-2">5</span>
+                            <span class="bg-indigo-600 text-white text-xs font-semibold px-2.5 py-0.5 rounded mr-2">6</span>
                             <h3 class="font-semibold text-lg">Performance Optimization</h3>
                         </div>
                         <div class="code-block p-4 rounded-lg overflow-x-auto">
@@ -613,76 +637,86 @@ Options -Indexes
                     </div>
                     
                     <div class="space-y-6">
-                        <!-- Issue 1 -->
+                        <div class="bg-blue-900/30 p-5 rounded-lg border border-blue-700">
+                            <h3 class="font-semibold text-lg mb-2"><i class="fas fa-check-circle mr-2 text-green-400"></i>Summary of Recent Security Enhancements:</h3>
+                            <ul class="list-disc list-inside text-sm space-y-1">
+                                <li><strong>Database Credentials:</strong> Moved from `index.php` to `db_config.php` (which is gitignored).</li>
+                                <li><strong>File Uploads:</strong> Added server-side MIME type validation for songs and cover art. Implemented filename sanitization.</li>
+                                <li><strong>CSRF Protection:</strong> Added CSRF token validation to the song upload form.</li>
+                                <li><strong>XSS Prevention (Lyrics):</strong> Lyrics are now sanitized using `htmlspecialchars` before database storage.</li>
+                                <li><strong>HTTP Security Headers:</strong> `.htaccess` now includes `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and a basic `Content-Security-Policy`.</li>
+                            </ul>
+                        </div>
+
                         <div class="bg-red-900/20 p-5 rounded-lg border border-red-800">
                             <div class="flex items-center mb-2">
-                                <div class="w-8 h-8 rounded-full bg-red-800 flex items-center justify-center mr-3">
-                                    <i class="fas fa-database text-sm"></i>
-                                </div>
-                                <h3 class="font-semibold">Database Credential Exposure</h3>
+                                <div class="w-8 h-8 rounded-full bg-red-800 flex items-center justify-center mr-3"><i class="fas fa-database text-sm"></i></div>
+                                <h3 class="font-semibold">Database Credential Management</h3>
                             </div>
-                            <p class="text-sm">Credentials are hardcoded in PHP script. If source code is exposed, database could be compromised.</p>
-                            <div class="mt-3 text-xs code-block p-2 rounded">
-                                <code>$host = "localhost"; $user = "root"; $pass = "";</code>
-                            </div>
+                            <p class="text-sm"><strong>Status:</strong> Improved. Credentials are in `db_config.php` (gitignored).<br>
+                            <strong>Recommendation:</strong> Ensure `db_config.php` has strict file permissions on the server and is not web-accessible.
+                            </p>
                         </div>
                         
-                        <!-- Issue 2 -->
                         <div class="bg-orange-900/20 p-5 rounded-lg border border-orange-800">
                             <div class="flex items-center mb-2">
-                                <div class="w-8 h-8 rounded-full bg-orange-800 flex items-center justify-center mr-3">
-                                    <i class="fas fa-upload text-sm"></i>
-                                </div>
-                                <h3 class="font-semibold">Insecure File Uploads</h3>
+                                <div class="w-8 h-8 rounded-full bg-orange-800 flex items-center justify-center mr-3"><i class="fas fa-upload text-sm"></i></div>
+                                <h3 class="font-semibold">File Upload Security</h3>
                             </div>
-                            <p class="text-sm">Only checks file extensions (.mp3, .jpg, etc.) without content-type verification or file sanitization.</p>
+                            <p class="text-sm"><strong>Status:</strong> Improved. Server-side MIME type validation and filename sanitization are implemented.<br>
+                            <strong>Note:</strong> Robust file upload security is an ongoing concern. Evaluate risks if used in sensitive environments.
+                            </p>
                         </div>
                         
-                        <!-- Issue 3 -->
                         <div class="bg-yellow-900/20 p-5 rounded-lg border border-yellow-800">
-                            <div class="flex items-center mb-2">
-                                <div class="w-8 h-8 rounded-full bg-yellow-800 flex items-center justify-center mr-3">
-                                    <i class="fas fa-code text-sm"></i>
-                                </div>
+                             <div class="flex items-center mb-2">
+                                <div class="w-8 h-8 rounded-full bg-yellow-800 flex items-center justify-center mr-3"><i class="fas fa-code text-sm"></i></div>
                                 <h3 class="font-semibold">SQL Injection Risk</h3>
                             </div>
-                            <p class="text-sm">Prepared statements used for inserts but not for all queries. No input sanitization for search/filter functions.</p>
+                            <p class="text-sm"><strong>Status:</strong> Partially Mitigated. Prepared statements are used for song uploads.<br>
+                            <strong>Recommendation:</strong> Review all database interactions to ensure consistent use of prepared statements or proper escaping.
+                            </p>
                         </div>
                         
-                        <!-- Issue 4 -->
                         <div class="bg-amber-900/20 p-5 rounded-lg border border-amber-800">
                             <div class="flex items-center mb-2">
-                                <div class="w-8 h-8 rounded-full bg-amber-800 flex items-center justify-center mr-3">
-                                    <i class="fas fa-exchange-alt text-sm"></i>
-                                </div>
+                                <div class="w-8 h-8 rounded-full bg-amber-800 flex items-center justify-center mr-3"><i class="fas fa-user-shield text-sm"></i></div>
                                 <h3 class="font-semibold">CSRF Vulnerability</h3>
                             </div>
-                            <p class="text-sm">Upload form lacks CSRF token protection. Attackers can forge requests to upload malicious files.</p>
+                            <p class="text-sm"><strong>Status:</strong> Improved. The song upload form is protected by CSRF tokens.</p>
                         </div>
                         
-                        <!-- Issue 5 -->
                         <div class="bg-pink-900/20 p-5 rounded-lg border border-pink-800">
                             <div class="flex items-center mb-2">
-                                <div class="w-8 h-8 rounded-full bg-pink-800 flex items-center justify-center mr-3">
-                                    <i class="fas fa-exclamation-triangle text-sm"></i>
-                                </div>
-                                <h3 class="font-semibold">XSS Vulnerability</h3>
+                                <div class="w-8 h-8 rounded-full bg-pink-800 flex items-center justify-center mr-3"><i class="fas fa-shield-virus text-sm"></i></div>
+                                <h3 class="font-semibold">XSS Vulnerability (Lyrics)</h3>
                             </div>
-                            <p class="text-sm">User-provided lyrics directly displayed without sanitization. Potential for script injection.</p>
+                            <p class="text-sm"><strong>Status:</strong> Improved. Lyrics are sanitized using `htmlspecialchars` before storage.<br>
+                            <strong>Recommendation:</strong> Always ensure proper output encoding on the client-side as a defense-in-depth measure.
+                            </p>
+                        </div>
+                         <div class="bg-teal-900/20 p-5 rounded-lg border border-teal-800">
+                            <div class="flex items-center mb-2">
+                                <div class="w-8 h-8 rounded-full bg-teal-800 flex items-center justify-center mr-3"><i class="fas fa-tasks text-sm"></i></div>
+                                <h3 class="font-semibold">HTTP Security Headers</h3>
+                            </div>
+                            <p class="text-sm"><strong>Status:</strong> Implemented. `.htaccess` configures several security headers.<br>
+                            <strong>Recommendation:</strong> Refine the Content-Security-Policy by eliminating 'unsafe-inline' for scripts/styles for higher security.
+                            </p>
                         </div>
                     </div>
                     
-                    <div class="mt-6 bg-indigo-900/30 p-4 rounded-lg">
+                    <div class="mt-8 bg-indigo-900/30 p-6 rounded-lg">
                         <div class="flex items-start">
-                            <i class="fas fa-lightbulb mt-1 mr-2 text-yellow-300"></i>
+                            <i class="fas fa-lightbulb mt-1 mr-3 text-yellow-300 text-xl"></i>
                             <div>
-                                <h3 class="font-semibold">Recommendations</h3>
-                                <ul class="list-disc list-inside text-sm space-y-1 mt-1">
-                                    <li>Move credentials to environment variables</li>
-                                    <li>Implement file content validation</li>
-                                    <li>Use prepared statements for all queries</li>
-                                    <li>Add CSRF protection to forms</li>
-                                    <li>Sanitize all user-provided content</li>
+                                <h3 class="font-semibold text-lg">General Security Advice</h3>
+                                <ul class="list-disc list-inside text-sm space-y-1 mt-2">
+                                    <li>Keep server software (Apache, PHP, MySQL) and any libraries up to date.</li>
+                                    <li>Implement robust input validation for all user-supplied data beyond what's currently done.</li>
+                                    <li>Regularly back up your database and application files.</li>
+                                    <li>Consider using HTTPS for encrypted communication.</li>
+                                    <li>If handling many users or sensitive data, conduct professional security audits.</li>
                                 </ul>
                             </div>
                         </div>
@@ -692,21 +726,16 @@ Options -Indexes
                 <!-- Footer -->
                 <footer class="glass-card rounded-xl p-6 mt-8 text-center">
                     <div class="flex justify-center space-x-6 mb-4">
-                        <a href="#" class="text-indigo-300 hover:text-white">
+                        <a href="https://github.com/druvx13/local-radio-stream" class="text-indigo-300 hover:text-white" aria-label="GitHub Repository" target="_blank" rel="noopener noreferrer">
                             <i class="fab fa-github text-2xl"></i>
                         </a>
-                        <a href="#" class="text-blue-300 hover:text-white">
-                            <i class="fab fa-twitter text-2xl"></i>
-                        </a>
-                        <a href="#" class="text-pink-300 hover:text-white">
-                            <i class="fab fa-discord text-2xl"></i>
-                        </a>
+                        <!-- Add other social links if available, with aria-labels -->
                     </div>
                     <p class="text-sm text-indigo-200">
                         Local Radio Stream Application - Installation Guide v1.0.0
                     </p>
                     <p class="text-xs text-indigo-300 mt-2">
-                        &copy; 2025 druvx13. All rights reserved. For personal use only.
+                        &copy; 2024 druvx13. Licensed under the MIT License.
                     </p>
                 </footer>
             </div>

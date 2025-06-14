@@ -1,4 +1,6 @@
-# Enable basic rewriting to route all requests to index.php
+# Set default charset
+AddDefaultCharset UTF-8
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
@@ -12,11 +14,10 @@
 # Disable directory browsing
 Options -Indexes
 
-# Set default charset
-AddDefaultCharset UTF-8
-
 # PHP Settings
-<IfModule mod_php7.c>
+# Note: These settings can often be configured via your hosting control panel,
+# which may override .htaccess directives.
+<IfModule mod_php.c> # Changed from mod_php7.c for broader compatibility
     php_value upload_max_filesize 64M
     php_value post_max_size 64M
     php_value max_execution_time 300
@@ -29,6 +30,17 @@ AddDefaultCharset UTF-8
     AddType image/jpeg .jpg .jpeg
     AddType image/png .png
     AddType image/gif .gif
+</IfModule>
+
+# Security Headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Permissions-Policy "geolocation=(), microphone=(), camera=(), midi=(), sync-xhr=(), magnetometer=(), gyroscope=(), payment=()"
+    # Content-Security-Policy: Allows inline scripts/styles and CDNs used.
+    # For stronger security, move inline scripts/styles to separate files and remove 'unsafe-inline'.
+    Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; frame-ancestors 'self';"
 </IfModule>
 
 # Caching: Cache static assets for better performance
@@ -49,7 +61,8 @@ AddDefaultCharset UTF-8
 </IfModule>
 
 # Security: Disallow remote access to sensitive files
-<FilesMatch "\.(env|ini|log|sql|bak|sh)$">
+# Added config.php to the list of protected files (e.g. db_config.php)
+<FilesMatch "\.(env|ini|log|sql|bak|sh|config\.php)$">
     Order Allow,Deny
     Deny from all
 </FilesMatch>

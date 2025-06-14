@@ -1,16 +1,36 @@
 <?php
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Generate or retrieve CSRF token
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+$csrf_token = $_SESSION['csrf_token'];
+
 // Handle API requests via ?action=...
 if (isset($_GET['action'])) {
-    // Database configuration
-    $host = "localhost";
-    $db   = "loco_music";
-    $user = "root";
-    $pass = "";
+    // Include database configuration
+    if (!file_exists('db_config.php')) {
+        header("Content-Type: application/json");
+        echo json_encode([
+            "status" => "error",
+            "message" => "Database configuration file (db_config.php) not found. Please create it by copying db_config.sample.php and filling in your credentials."
+        ]);
+        die();
+    }
+    require_once 'db_config.php';
 
     // Create connection
-    $conn = new mysqli($host, $user, $pass, $db);
+    $conn = new mysqli(DB_HOST, DB_USERNAME, DB_PASSWORD, DB_NAME);
     if ($conn->connect_error) {
-        die(json_encode(["error" => "Connection failed: " . $conn->connect_error]));
+        header("Content-Type: application/json");
+        echo json_encode([
+            "status" => "error",
+            "message" => "Connection failed: " . $conn->connect_error
+        ]);
+        die();
     }
 
     $action = $_GET['action'];
@@ -19,11 +39,22 @@ if (isset($_GET['action'])) {
         header("Content-Type: application/json");
         $sql = "SELECT * FROM songs ORDER BY uploaded_at DESC";
         $result = $conn->query($sql);
-        $songs = [];
-        while ($row = $result->fetch_assoc()) {
-            $songs[] = $row;
+
+        if ($result) {
+            $songs = [];
+            while ($row = $result->fetch_assoc()) {
+                $songs[] = $row;
+            }
+            echo json_encode([
+                "status" => "success",
+                "data" => ["songs" => $songs]
+            ]);
+        } else {
+            echo json_encode([
+                "status" => "error",
+                "message" => "Database query error: " . $conn->error
+            ]);
         }
-        echo json_encode($songs);
         $conn->close();
         exit;
     }
@@ -31,68 +62,157 @@ if (isset($_GET['action'])) {
     if ($action === 'uploadSong') {
         header("Content-Type: application/json");
 
+        // CSRF Token Validation
+        if (session_status() == PHP_SESSION_NONE) { session_start(); } // Ensure session is started
+        if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+            echo json_encode(['status' => 'error', 'message' => 'CSRF token validation failed. Please refresh and try again.']);
+            exit;
+        }
+        // Optional: Regenerate token after successful validation for next request
+        // unset($_SESSION['csrf_token']); // For this app, let's keep it simple and not regenerate for now
+
         if (!isset($_FILES['song'])) {
-            echo json_encode(['error' => 'No song file received']);
+            echo json_encode([
+                "status" => "error",
+                "message" => "No song file received"
+            ]);
             exit;
         }
 
         $uploadDir = 'uploads/';
         if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0777, true);
+            if (!mkdir($uploadDir, 0777, true)) {
+                echo json_encode([
+                    "status" => "error",
+                    "message" => "Failed to create upload directory."
+                ]);
+                exit;
+            }
         }
 
-        $songName = basename($_FILES['song']['name']);
-        $targetSong = $uploadDir . $songName;
-        $songType = strtolower(pathinfo($targetSong, PATHINFO_EXTENSION));
+        // Sanitize song filename
+        $songOriginalName = $_FILES['song']['name'];
+        $songSanitizedName = preg_replace("/[^a-zA-Z0-9_\-\.\s]/", "", basename($songOriginalName));
+        if (empty($songSanitizedName) || $songSanitizedName === "." || $songSanitizedName === "..") { // Basic check if sanitization made it empty or just dots
+            $songExtension = pathinfo($songOriginalName, PATHINFO_EXTENSION);
+            $songSanitizedName = "uploaded_song_" . time() . "." . ($songExtension ?: 'mp3');
+        }
+        $targetSong = $uploadDir . $songSanitizedName;
 
-        if ($songType !== "mp3") {
-            echo json_encode(['error' => 'Only MP3 files are allowed for the song.']);
+        // Check file extension (initial check)
+        $songFileExtension = strtolower(pathinfo($targetSong, PATHINFO_EXTENSION));
+        if ($songFileExtension !== "mp3") {
+            echo json_encode([
+                "status" => "error",
+                "message" => "File extension error: Only MP3 files are allowed for the song."
+            ]);
             exit;
         }
 
         if (!move_uploaded_file($_FILES['song']['tmp_name'], $targetSong)) {
-            echo json_encode(['error' => 'Error uploading the song file.']);
+            echo json_encode([
+                "status" => "error",
+                "message" => "Error uploading the song file."
+            ]);
+            exit;
+        }
+
+        // MIME Type Validation for Song
+        $songMimeType = mime_content_type($targetSong);
+        if ($songMimeType !== 'audio/mpeg') {
+            unlink($targetSong); // Delete the invalid file
+            echo json_encode([
+                "status" => "error",
+                "message" => "Invalid file type: Song must be an MP3. Detected: " . $songMimeType
+            ]);
             exit;
         }
 
         $coverURL = '';
+        $targetCover = ''; // Initialize targetCover
         if (isset($_FILES['cover']) && $_FILES['cover']['error'] == UPLOAD_ERR_OK) {
-            $coverName = basename($_FILES['cover']['name']);
-            $targetCover = $uploadDir . $coverName;
-            $coverType = strtolower(pathinfo($targetCover, PATHINFO_EXTENSION));
-            $allowedTypes = ['jpg', 'jpeg', 'png', 'gif'];
-            if (!in_array($coverType, $allowedTypes)) {
-                echo json_encode(['error' => 'Cover image must be jpg, jpeg, png, or gif.']);
+            // Sanitize cover filename
+            $coverOriginalName = $_FILES['cover']['name'];
+            $coverSanitizedName = preg_replace("/[^a-zA-Z0-9_\-\.\s]/", "", basename($coverOriginalName));
+            if (empty($coverSanitizedName) || $coverSanitizedName === "." || $coverSanitizedName === "..") {
+                $coverExtension = pathinfo($coverOriginalName, PATHINFO_EXTENSION);
+                $coverSanitizedName = "uploaded_cover_" . time() . "." . ($coverExtension ?: 'jpg');
+            }
+            $targetCover = $uploadDir . $coverSanitizedName;
+
+            $coverFileExtension = strtolower(pathinfo($targetCover, PATHINFO_EXTENSION));
+            $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif'];
+            if (!in_array($coverFileExtension, $allowedExtensions)) {
+                echo json_encode([
+                    "status" => "error",
+                    "message" => "File extension error: Cover image must be JPG, JPEG, PNG, or GIF."
+                ]);
                 exit;
             }
+
             if (!move_uploaded_file($_FILES['cover']['tmp_name'], $targetCover)) {
-                echo json_encode(['error' => 'Error uploading cover image.']);
+                echo json_encode([
+                    "status" => "error",
+                    "message" => "Error uploading cover image."
+                ]);
                 exit;
             }
-            $coverURL = $targetCover;
+
+            // MIME Type Validation for Cover
+            $coverMimeType = mime_content_type($targetCover);
+            $allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif'];
+            if (!in_array($coverMimeType, $allowedMimeTypes)) {
+                unlink($targetCover); // Delete the invalid file
+                echo json_encode([
+                    "status" => "error",
+                    "message" => "Invalid file type: Cover image must be JPG, PNG, or GIF. Detected: " . $coverMimeType
+                ]);
+                exit;
+            }
+            $coverURL = $targetCover; // Use sanitized target path
         }
 
-        $title  = $conn->real_escape_string($_POST['title'] ?? $songName);
-        $artist = $conn->real_escape_string($_POST['artist'] ?? 'Uploaded Artist');
-        $lyrics = $conn->real_escape_string($_POST['lyrics'] ?? '');
+        // Sanitize Lyrics
+        $rawLyrics = $_POST['lyrics'] ?? '';
+        $sanitizedLyrics = htmlspecialchars($rawLyrics, ENT_QUOTES, 'UTF-8');
+
+        // Prepare data for database
+        $title  = $conn->real_escape_string($_POST['title'] ?? pathinfo($songSanitizedName, PATHINFO_FILENAME));
+        $artist = $conn->real_escape_string($_POST['artist'] ?? 'Unknown Artist');
+        $dbLyrics = $conn->real_escape_string($sanitizedLyrics); // Already HTML-sanitized, now SQL-escape
 
         $stmt = $conn->prepare("INSERT INTO songs (title, file, cover, artist, lyrics) VALUES (?, ?, ?, ?, ?)");
-        $stmt->bind_param("sssss", $title, $targetSong, $coverURL, $artist, $lyrics);
+        if (!$stmt) {
+             echo json_encode([
+                "status" => "error",
+                "message" => "Database statement preparation error: " . $conn->error
+            ]);
+            $conn->close();
+            exit;
+        }
+        $stmt->bind_param("sssss", $title, $targetSong, $coverURL, $artist, $dbLyrics);
 
         if ($stmt->execute()) {
+            $songId = $stmt->insert_id;
             echo json_encode([
-                'success' => 'File uploaded successfully',
-                'song' => [
-                    'id' => $stmt->insert_id,
-                    'title' => $title,
-                    'file' => $targetSong,
-                    'cover' => $coverURL,
-                    'artist' => $artist,
-                    'lyrics' => $lyrics
+                "status" => "success",
+                "message" => "File uploaded successfully",
+                "data" => [
+                    "song" => [
+                        'id' => $songId,
+                        'title' => $title, // Already escaped for DB
+                        'file' => $targetSong, // Sanitized path
+                        'cover' => $coverURL, // Sanitized path or empty
+                        'artist' => $artist, // Already escaped for DB
+                        'lyrics' => $sanitizedLyrics // HTML sanitized version for potential direct display (DB version is SQL escaped)
+                    ]
                 ]
             ]);
         } else {
-            echo json_encode(['error' => 'Database error: ' . $conn->error]);
+            echo json_encode([
+                "status" => "error",
+                "message" => "Database error: " . $stmt->error
+            ]);
         }
 
         $stmt->close();
@@ -108,8 +228,11 @@ if (isset($_GET['action'])) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Local Radio Stream</title>
-  <script src="https://cdn.tailwindcss.com "></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css ">
+  <script>
+    const CSRF_TOKEN = '<?php echo $csrf_token; ?>';
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
   <style>
     /* Full CSS styles remain unchanged here — same as before */
     .audio-visualizer { display: flex; justify-content: center; align-items: flex-end; height: 100px; gap: 2px; margin: 20px 0; }
@@ -183,12 +306,12 @@ if (isset($_GET['action'])) {
       </span>
     </div>
     <div class="song-info mt-2 p-3 rounded-lg flex items-center">
-      <div id="coverArt" class="w-12 h-12 rounded-md overflow-hidden default-cover">
-        <i class="fas fa-music text-xl text-purple-400"></i>
+      <div id="coverArt" class="w-12 h-12 rounded-md overflow-hidden default-cover" aria-label="Default cover art icon">
+        <i class="fas fa-music text-xl text-purple-400" aria-hidden="true"></i>
       </div>
-      <div class="ml-3 overflow-hidden">
-        <div class="font-medium truncate" id="current-song">Select a song</div>
-        <div class="text-xs text-blue-100 truncate" id="current-artist">-</div>
+      <div class="ml-3 overflow-hidden" aria-live="polite">
+        <div class="font-medium truncate" id="current-song" aria-label="Current song title">Select a song</div>
+        <div class="text-xs text-blue-100 truncate" id="current-artist" aria-label="Current song artist">-</div>
       </div>
     </div>
   </div>
@@ -210,28 +333,28 @@ if (isset($_GET['action'])) {
       </audio>
       <!-- Custom Controls -->
       <div class="flex items-center justify-center space-x-6 w-full mb-6">
-        <button id="shuffleBtn" class="text-gray-400 hover:text-white p-3 rounded-full" title="Shuffle">
-          <i class="fas fa-random text-xl"></i>
+        <button id="shuffleBtn" class="text-gray-400 hover:text-white p-3 rounded-full" title="Shuffle" aria-label="Toggle shuffle mode">
+          <i class="fas fa-random text-xl" aria-hidden="true"></i>
         </button>
-        <button id="prevBtn" class="text-gray-400 hover:text-white p-3 rounded-full" title="Previous">
-          <i class="fas fa-step-backward text-xl"></i>
+        <button id="prevBtn" class="text-gray-400 hover:text-white p-3 rounded-full" title="Previous" aria-label="Previous song">
+          <i class="fas fa-step-backward text-xl" aria-hidden="true"></i>
         </button>
-        <button id="playBtn" class="bg-green-600 hover:bg-green-700 text-white p-4 rounded-full shadow-lg" title="Play/Pause">
-          <i class="fas fa-play text-xl"></i>
+        <button id="playBtn" class="bg-green-600 hover:bg-green-700 text-white p-4 rounded-full shadow-lg" title="Play/Pause" aria-label="Play or Pause music">
+          <i class="fas fa-play text-xl" aria-hidden="true"></i>
         </button>
-        <button id="nextBtn" class="text-gray-400 hover:text-white p-3 rounded-full" title="Next">
-          <i class="fas fa-step-forward text-xl"></i>
+        <button id="nextBtn" class="text-gray-400 hover:text-white p-3 rounded-full" title="Next" aria-label="Next song">
+          <i class="fas fa-step-forward text-xl" aria-hidden="true"></i>
         </button>
-        <button id="repeatBtn" class="text-gray-400 hover:text-white p-3 rounded-full" title="Repeat">
-          <i class="fas fa-redo text-xl"></i>
+        <button id="repeatBtn" class="text-gray-400 hover:text-white p-3 rounded-full" title="Repeat" aria-label="Toggle repeat mode">
+          <i class="fas fa-redo text-xl" aria-hidden="true"></i>
         </button>
       </div>
       <!-- Volume Control -->
       <div class="flex items-center w-full mb-6">
-        <i class="fas fa-volume-down text-gray-400 mr-2"></i>
+        <i class="fas fa-volume-down text-gray-400 mr-2" aria-hidden="true"></i>
         <input type="range" id="volume" min="0" max="1" step="0.01" value="0.7"
-               class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer">
-        <i class="fas fa-volume-up text-gray-400 ml-2"></i>
+               class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer" aria-label="Volume control">
+        <i class="fas fa-volume-up text-gray-400 ml-2" aria-hidden="true"></i>
       </div>
       <!-- Time Display -->
       <div class="flex items-center justify-between w-full mt-4">
@@ -273,13 +396,13 @@ if (isset($_GET['action'])) {
   <!-- Playlist Section -->
   <div class="w-full p-6 bg-gray-800 border-t border-gray-700">
     <div class="flex justify-between items-center mb-4">
-      <h3 class="text-xl font-bold">Playlist</h3>
+      <h3 class="text-xl font-bold" id="playlistTitle">Playlist</h3>
       <div class="flex gap-3">
-        <button id="refreshBtn" class="bg-white/10 px-3 py-1 rounded-lg hover:bg-white/20" title="Refresh playlist">
-          <i class="fas fa-sync-alt"></i>
+        <button id="refreshBtn" class="bg-white/10 px-3 py-1 rounded-lg hover:bg-white/20" title="Refresh playlist" aria-label="Refresh playlist">
+          <i class="fas fa-sync-alt" aria-hidden="true"></i>
         </button>
-        <button id="uploadBtn" class="upload-btn px-4 py-2 rounded-lg text-white font-medium flex items-center" title="Upload">
-          <i class="fas fa-upload mr-2"></i>Upload
+        <button id="uploadBtn" class="upload-btn px-4 py-2 rounded-lg text-white font-medium flex items-center" title="Upload" aria-label="Open song upload modal">
+          <i class="fas fa-upload mr-2" aria-hidden="true"></i>Upload
         </button>
       </div>
     </div>
@@ -300,59 +423,59 @@ if (isset($_GET['action'])) {
 </div>
 
 <!-- Upload Modal -->
-<div id="uploadModal" class="fixed inset-0 hidden items-center justify-center z-50 modal-overlay">
+<div id="uploadModal" class="fixed inset-0 hidden items-center justify-center z-50 modal-overlay" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle">
   <div class="glass-effect rounded-2xl p-6 w-full max-w-md neon-shadow mx-4">
     <div class="flex justify-between items-center mb-4">
-      <h3 class="text-xl font-bold">Upload New Song</h3>
-      <button id="cancelBtn" class="text-white/50 hover:text-white">
-        <i class="fas fa-times text-xl"></i>
+      <h3 class="text-xl font-bold" id="uploadModalTitle">Upload New Song</h3>
+      <button id="cancelBtn" class="text-white/50 hover:text-white" aria-label="Close upload modal">
+        <i class="fas fa-times text-xl" aria-hidden="true"></i>
       </button>
     </div>
     <form id="uploadForm" class="space-y-4" enctype="multipart/form-data">
       <div>
-        <label class="block mb-2 text-sm font-medium">Song Title</label>
-        <input type="text" name="title" required
+        <label for="titleInput" class="block mb-2 text-sm font-medium">Song Title</label>
+        <input type="text" id="titleInput" name="title" required
                class="w-full bg-white/10 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-white/50 placeholder-white/30"
                placeholder="Enter song title">
       </div>
       <div>
-        <label class="block mb-2 text-sm font-medium">Artist</label>
-        <input type="text" name="artist" required
+        <label for="artistInput" class="block mb-2 text-sm font-medium">Artist</label>
+        <input type="text" id="artistInput" name="artist" required
                class="w-full bg-white/10 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-white/50 placeholder-white/30"
                placeholder="Enter artist name">
       </div>
       <div>
-        <label class="block mb-2 text-sm font-medium">Lyrics (Optional)</label>
-        <textarea name="lyrics" rows="3"
+        <label for="lyricsInput" class="block mb-2 text-sm font-medium">Lyrics (Optional)</label>
+        <textarea id="lyricsInput" name="lyrics" rows="3"
                   class="w-full bg-white/10 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-white/50 placeholder-white/30"
                   placeholder="Enter song lyrics"></textarea>
       </div>
       <div>
-        <label class="block mb-2 text-sm font-medium">Cover Art (Optional)</label>
+        <label for="coverInput" class="block mb-2 text-sm font-medium">Cover Art (Optional)</label>
         <div class="flex items-center gap-3">
           <label for="coverInput" class="cursor-pointer bg-white/10 rounded-lg p-3 flex-1 text-center hover:bg-white/20">
-            <i class="fas fa-image mr-2"></i>
+            <i class="fas fa-image mr-2" aria-hidden="true"></i>
             <span id="coverFileName">Choose cover image</span>
-            <input type="file" id="coverInput" name="cover" accept="image/*" class="hidden">
           </label>
+          <input type="file" id="coverInput" name="cover" accept="image/*" class="hidden">
           <div id="coverPreview" class="w-16 h-16 bg-white/5 rounded-lg overflow-hidden hidden">
-            <img id="coverPreviewImg" class="w-full h-full object-cover">
+            <img id="coverPreviewImg" class="w-full h-full object-cover" alt="Cover art preview">
           </div>
         </div>
       </div>
       <div>
-        <label class="block mb-2 text-sm font-medium">Song File (MP3)</label>
+        <label for="songInput" class="block mb-2 text-sm font-medium">Song File (MP3)</label>
         <label for="songInput" class="cursor-pointer bg-white/10 rounded-lg p-3 flex text-center hover:bg-white/20">
-          <i class="fas fa-music mr-2"></i>
+          <i class="fas fa-music mr-2" aria-hidden="true"></i>
           <span id="songFileName">Choose MP3 file</span>
-          <input type="file" id="songInput" name="song" accept="audio/mp3" required class="hidden">
         </label>
+        <input type="file" id="songInput" name="song" accept="audio/mp3" required class="hidden">
       </div>
       <div class="flex gap-4 pt-2">
-        <button type="submit" class="flex-1 bg-white/10 px-4 py-3 rounded-lg hover:bg-white/20 font-medium flex items-center justify-center">
-          <i class="fas fa-cloud-upload-alt mr-2"></i>Upload
+        <button type="submit" class="flex-1 bg-white/10 px-4 py-3 rounded-lg hover:bg-white/20 font-medium flex items-center justify-center" aria-label="Submit song upload">
+          <i class="fas fa-cloud-upload-alt mr-2" aria-hidden="true"></i>Upload
         </button>
-        <button type="button" id="cancelUploadBtn" class="flex-1 bg-red-500/20 px-4 py-3 rounded-lg hover:bg-red-500/30 font-medium">
+        <button type="button" id="cancelUploadBtn" class="flex-1 bg-red-500/20 px-4 py-3 rounded-lg hover:bg-red-500/30 font-medium" aria-label="Cancel song upload">
           Cancel
         </button>
       </div>
@@ -361,7 +484,7 @@ if (isset($_GET['action'])) {
 </div>
 
 <!-- Notification Toast -->
-<div id="toast"></div>
+<div id="toast" role="alert" aria-live="assertive"></div>
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
@@ -445,8 +568,9 @@ document.addEventListener("DOMContentLoaded", () => {
       statusDisplay.textContent = "Playing";
       updateVisualizer();
     } catch (e) {
-      console.error("AudioContext error:", e);
-      statusDisplay.textContent = "Error: " + e.message;
+      console.error("AudioContext setup error:", e);
+      statusDisplay.textContent = "Error initializing audio playback: " + e.message;
+      showNotification("Audio system error. Please refresh.", true);
     }
   }
 
@@ -466,27 +590,45 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function fetchPlaylist() {
+    playlistElement.innerHTML = `
+      <li class="text-center py-10">
+        <div class="spinner mx-auto mb-2"></div>
+        <p>Loading playlist...</p>
+      </li>
+    `;
     try {
-      playlistElement.innerHTML = `
-        <li class="text-center py-10">
-          <div class="spinner mx-auto mb-2"></div>
-          <p>Loading playlist...</p>
-        </li>
-      `;
       const response = await fetch('index.php?action=getPlaylist');
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        playlist = data;
-        originalPlaylistOrder = [...data];
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Network response was not ok: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+      // Check content type before parsing
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+          const responseText = await response.text();
+          console.error("Received non-JSON response:", responseText);
+          throw new TypeError("Oops, we haven't got JSON! Response: " + responseText.substring(0, 100) + "...");
+      }
+      constresponseData = await response.json(); // Renamed to avoid conflict
+
+      if (responseData.status === 'success' && responseData.data && Array.isArray(responseData.data.songs)) {
+        playlist = responseData.data.songs;
+        originalPlaylistOrder = [...playlist];
         updatePlaylistDisplay();
-        showNotification("Playlist loaded");
+        showNotification("Playlist loaded successfully!");
+      } else if (responseData.status === 'error' && responseData.message) {
+        console.error("API error fetching playlist:", responseData.message);
+        playlistElement.innerHTML = `<li class="text-center py-10 text-red-400"><i class="fas fa-exclamation-triangle text-3xl mb-2"></i><p>Error loading playlist: ${responseData.message}</p></li>`;
+        showNotification(`Error: ${responseData.message}`, true);
       } else {
-        console.error("Playlist fetch failed");
-        showNotification("Failed to load playlist", true);
+        console.error("Invalid or unexpected JSON structure from getPlaylist:", responseData);
+        playlistElement.innerHTML = `<li class="text-center py-10 text-red-400"><i class="fas fa-exclamation-triangle text-3xl mb-2"></i><p>Failed to load playlist. Unexpected server response.</p></li>`;
+        showNotification("Failed to load playlist: Unexpected response", true);
       }
     } catch (error) {
-      console.error("Error fetching playlist:", error);
-      showNotification("Network error loading playlist", true);
+      console.error("Critical error fetching playlist:", error);
+      playlistElement.innerHTML = `<li class="text-center py-10 text-red-400"><i class="fas fa-exclamation-triangle text-3xl mb-2"></i><p>Error loading playlist. Please check connection and try again.</p></li>`;
+      showNotification("Network error or critical issue loading playlist.", true);
     }
   }
 
@@ -504,10 +646,10 @@ document.addEventListener("DOMContentLoaded", () => {
       <li class="song-item bg-white/5 p-3 rounded-lg cursor-pointer hover:bg-white/10 transition-all ${currentSongIndex === index ? 'current-song' : ''}"
            onclick="playSong(${index})">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-md overflow-hidden ${song.cover ? '' : 'default-cover'}">
+          <div class="w-10 h-10 rounded-md overflow-hidden ${song.cover ? '' : 'default-cover'}" ${!song.cover ? 'aria-label="Default cover art icon"' : ''}>
             ${song.cover ? 
-              `<img src="${song.cover}" class="w-full h-full object-cover">` : 
-              `<i class="fas fa-music w-full h-full flex items-center justify-center"></i>`}
+              `<img src="${song.cover}" class="w-full h-full object-cover" alt="Cover art for ${song.title || 'song'}">` :
+              `<i class="fas fa-music w-full h-full flex items-center justify-center" aria-hidden="true"></i>`}
           </div>
           <div class="flex-1 min-w-0">
             <p class="font-medium truncate">${song.title}</p>
@@ -576,9 +718,11 @@ document.addEventListener("DOMContentLoaded", () => {
       currentSongDisplay.textContent = song.title;
     }
     if (song.cover) {
-      coverArt.innerHTML = `<img src="${song.cover}" class="w-full h-full object-cover">`;
+      coverArt.innerHTML = `<img src="${song.cover}" class="w-full h-full object-cover" alt="Cover art for ${song.title}">`;
+      coverArt.removeAttribute('aria-label'); // Remove default label if image is present
     } else {
-      coverArt.innerHTML = `<i class="fas fa-music text-xl text-purple-400"></i>`;
+      coverArt.innerHTML = `<i class="fas fa-music text-xl text-purple-400" aria-hidden="true"></i>`;
+      coverArt.setAttribute('aria-label', 'Default cover art icon');
     }
     audio.src = song.file;
     audio.load();
@@ -597,8 +741,9 @@ document.addEventListener("DOMContentLoaded", () => {
       showNotification(`Now playing: ${song.title}`);
       setupMediaSession(song);
     } catch (error) {
-      console.error("Play error:", error);
-      showNotification('Click anywhere to play', true);
+      console.error("Error playing song:", song.title, error);
+      showNotification(`Error playing ${song.title}: ${error.message}`, true);
+      statusDisplay.textContent = "Error playing song";
     }
   }
 
@@ -740,26 +885,36 @@ document.addEventListener("DOMContentLoaded", () => {
     submitBtn.innerHTML = '<div class="spinner mr-2"></div> Uploading...';
     submitBtn.disabled = true;
     const formData = new FormData(e.target);
+    formData.append('csrf_token', CSRF_TOKEN); // Add CSRF token to form data
     try {
       const response = await fetch('index.php?action=uploadSong', {
         method: 'POST',
         body: formData
       });
+      // Check content type before parsing
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+          const responseText = await response.text();
+          console.error("Received non-JSON response from upload:", responseText);
+          throw new TypeError("Oops, we haven't got JSON from upload! Response: " + responseText.substring(0,100) + "...");
+      }
       const result = await response.json();
-      if (result.success) {
-        await fetchPlaylist();
+
+      if (result.status === 'success') {
+        await fetchPlaylist(); // Refresh playlist
         uploadModal.style.display = 'none';
         uploadForm.reset();
         coverPreview.classList.add('hidden');
+        coverPreviewImg.src = '';
         coverFileName.textContent = 'Choose cover image';
         songFileName.textContent = 'Choose MP3 file';
-        showNotification('Song uploaded successfully!');
+        showNotification(result.message || 'Song uploaded successfully!');
       } else {
-        showNotification(result.error || 'Upload failed', true);
+        showNotification(result.message || 'Upload failed. Please try again.', true);
       }
     } catch (error) {
       console.error("Upload error:", error);
-      showNotification('Network error during upload', true);
+      showNotification('Upload failed: Network error or server issue. ' + error.message, true);
     } finally {
       submitBtn.innerHTML = originalText;
       submitBtn.disabled = false;
