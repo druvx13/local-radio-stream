@@ -25,10 +25,11 @@ This is a radio streaming application combining a **PHP/MySQL backend** with a *
 ## 🛠️ Setup Instructions
 
 ### 1. Server Requirements
-- **PHP 8.0+** with mysqli extension enabled
-- **MySQL 5.6+** database server
-- **Apache/Nginx** web server
-- **777 permissions** on `/uploads` directory
+- **PHP 8.0+** with mysqli extension enabled.
+- **GD Library for PHP** (for image optimization of cover art).
+- **MySQL 5.6+** database server.
+- **Apache/Nginx** web server.
+- **777 permissions** on `public/uploads/` directory.
 
 ### 2. Database Configuration
 ```sql
@@ -46,6 +47,20 @@ CREATE TABLE songs (
   lyrics TEXT,
   uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create upload_attempts table for rate limiting
+CREATE TABLE IF NOT EXISTS upload_attempts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ip_address VARCHAR(45) NOT NULL, -- Supports IPv4 and IPv6
+    attempt_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX ip_address_idx (ip_address),
+    INDEX attempt_timestamp_idx (attempt_timestamp)
+);
+
+-- Recommended Indexes for 'songs' table for performance:
+CREATE INDEX idx_songs_uploaded_at ON songs (uploaded_at); -- Speeds up playlist sorting
+CREATE INDEX idx_songs_title ON songs (title); -- For future title search/filter
+CREATE INDEX idx_songs_artist ON songs (artist); -- For future artist search/filter
 ```
 
 ### 3. File Structure
@@ -76,10 +91,21 @@ CREATE TABLE songs (
     ```
     **Important:** `db_config.php` is included in `.gitignore` and should not be committed to your repository.
 
+    The application also uses constants for rate limiting defined in `app/core/bootstrap.php`:
+    - `UPLOAD_RATE_LIMIT_COUNT`: Max uploads per user per time window.
+    - `UPLOAD_RATE_LIMIT_WINDOW`: Time window in seconds for rate limiting.
+
+    Additionally, configuration for cover art optimization is in `app/core/bootstrap.php`:
+    - `COVER_ART_MAX_WIDTH`: Maximum width for resized cover art.
+    - `COVER_ART_MAX_HEIGHT`: Maximum height for resized cover art.
+    - `COVER_ART_JPEG_QUALITY`: Quality setting for JPEG optimization.
+    - `COVER_ART_PNG_COMPRESSION`: Compression level for PNG optimization.
+    These can be adjusted if needed.
+
 ### 5. Directory Permissions
 ```bash
-mkdir -p uploads/
-chmod 777 uploads/
+mkdir -p public/uploads/
+chmod 777 public/uploads/
 ```
 
 ---
@@ -195,13 +221,17 @@ LimitRequestBody 104857600
 - **Bitrate detection** (default: 128kbps)
 
 ### 2. Playlist Management
-- **Reverse chronological display** (`ORDER BY uploaded_at DESC`)
-- **Shuffle functionality** using Fisher-Yates algorithm
-- **Repeat mode** with single-track loop
+- **Reverse chronological display** (`ORDER BY uploaded_at DESC`).
+- **Client-side search/filter** for the playlist by song title or artist, with debounced input for real-time filtering.
+- **Editable song metadata:** Ability to edit song title, artist, and lyrics via a modal dialog.
+- **Lazy loading of cover art images** to improve initial load time and perceived performance, especially for long playlists.
+- **Shuffle functionality** using Fisher-Yates algorithm.
+- **Repeat mode** with single-track loop.
 
 ### 3. Upload System
 - **MP3 validation** by file extension and server-side MIME type check (`audio/mpeg`).
 - **Cover art support** (JPG/PNG/GIF) with server-side MIME type check.
+- **Automatic server-side optimization** (resize & compress) of uploaded cover art to save storage and improve loading times (requires GD library).
 - **Filename sanitization** for uploaded files.
 - **Lyrics storage** in database (lyrics are sanitized with `htmlspecialchars` before storage).
 
@@ -230,10 +260,13 @@ Significant improvements have been made, but security is an ongoing process.
 - **Improved:**
     - Server-side MIME type validation (`audio/mpeg` for songs; `image/jpeg`, `image/png`, `image/gif` for covers) is now performed. Invalid files are deleted.
     - Filenames are sanitized to remove potentially problematic characters.
+    - Uploaded cover images are processed (resized and re-compressed) to standard dimensions and optimized quality, which also helps in standardizing file formats.
+- **Upload Rate Limiting:**
+    - **Improved:** The `uploadSong` API endpoint now includes IP-based rate limiting to prevent abuse. It limits the number of upload attempts from a single IP address within a defined time window (e.g., 10 uploads per hour).
 - **Note:** While improved, robust file upload security can be complex. Consider further restrictions or analysis if handling untrusted uploads in a more sensitive environment.
 
 ### 3. SQL Injection
-- **Partially Mitigated:** Prepared statements are used for database inserts (`uploadSong` action).
+- **Partially Mitigated:** Prepared statements are used for database inserts (`uploadSong` action) and for rate limiting queries.
 - **Recommendation:** Review all database queries to ensure prepared statements or proper escaping is used consistently.
 
 ### 4. CSRF Vulnerability
@@ -249,34 +282,59 @@ Significant improvements have been made, but security is an ongoing process.
     - `X-Frame-Options "SAMEORIGIN"`
     - `Referrer-Policy "strict-origin-when-cross-origin"`
     - `Permissions-Policy` (basic setup)
-    - `Content-Security-Policy` (basic setup, allows `unsafe-inline` for compatibility)
-- **Recommendation:** For enhanced security, consider refining the `Content-Security-Policy` further, especially by moving inline JavaScript and CSS to external files to remove `'unsafe-inline'`.
+    - `Content-Security-Policy` (now stricter, avoiding 'unsafe-inline' for scripts and styles).
+- **Recommendation:** For enhanced security, always review and adapt security measures like CSP to your specific hosting environment and application needs.
 
 ---
 
-## 📦 File Structure Map
+## ⚡ Performance and Asset Minification
 
-```
-index.php
-├── PHP Backend
-│   ├── Database Connection
-│   ├── API Handlers (getPlaylist, uploadSong)
-│   └── Security Checks
-├── HTML Structure
-│   ├── Header (Radio Logo + Status)
-│   ├── Player Controls
-│   ├── Playlist Display
-│   └── Upload Modal
-├── CSS Styles
-│   ├── Visualizer Animation
-│   ├── Glassmorphism Effects
-│   └── Responsive Layouts
-└── JavaScript
-    ├── Audio Processing
-    ├── Playlist Management
-    └── UI Interactions
-```
+For improved performance, the application links to minified versions of its custom CSS and JavaScript files:
+- `public/assets/css/style.min.css`
+- `public/assets/js/main.min.js`
 
+If you make custom changes to the source files (`style.css` or `main.js`), you should re-minify them. Placeholder `.min` files are provided, which are initially copies of the unminified versions.
+
+**How to Minify:**
+
+**CSS (using an online tool):**
+1.  Copy the entire content of `public/assets/css/style.css`.
+2.  Go to an online CSS minifier (e.g., search "online CSS minifier" - options include cssminifier.com, Toptal CSS Minifier).
+3.  Paste your CSS code into the minifier.
+4.  Copy the minified output from the tool.
+5.  Paste the minified code into `public/assets/css/style.min.css`, replacing its existing content.
+
+**JavaScript (using an online tool):**
+1.  Copy the entire content of `public/assets/js/main.js`.
+2.  Go to an online JavaScript minifier (e.g., search "online JavaScript minifier" - options include javascript-minifier.com, Toptal JavaScript Minifier, UglifyJS online).
+3.  Paste your JavaScript code into the minifier.
+4.  Copy the minified output.
+5.  Paste the minified code into `public/assets/js/main.min.js`, replacing its existing content.
+
+**Note for Developers:** If you are actively developing and making frequent changes to CSS or JavaScript, you might find it convenient to temporarily change the links in `templates/player.php` to point directly to the unminified files (e.g., `style.css` and `main.js`). Remember to switch back and re-minify when your changes are stable.
+
+**Utility Functions:**
+- The `public/assets/js/main.js` file also includes a `debounce` utility function. This function is available for optimizing event handlers (e.g., for future search input fields) by delaying function execution until after a certain period of inactivity.
+
+---
+
+## 📦 File Structure
+
+The project has been restructured from a single `index.php` file to a more organized layout:
+
+-   `public/`: Web server document root.
+    -   `index.php`: Main application entry point (router).
+    -   `assets/`: Contains CSS and JS files.
+    -   `uploads/`: Storage for uploaded media.
+    -   `.htaccess`: Apache configuration for routing and security.
+-   `app/`: Core application logic.
+    -   `controllers/`: Handles requests and business logic (e.g., `PageController.php`, `ApiController.php`).
+    -   `core/`: Bootstrap, database connection, configuration (`bootstrap.php`).
+-   `templates/`: HTML templates (e.g., `player.php`).
+-   `logs/`: For PHP error logs (should be secured and not web-accessible).
+-   `db_config.php`: Database credentials (gitignored).
+-   `db_config.sample.php`: Sample for `db_config.php`.
+-   `README.md`, `LICENSE.md`, `docs/`: Project documentation.
 
 ---
 
@@ -291,5 +349,100 @@ For issues or questions:
 | Version | Date       | Changes                                      |
 |--------|------------|----------------------------------------------|
 | 1.0.0  | 09-05-2025 | Initial release with core features           |
+
+---
+
+## 📡 API Endpoints
+
+The application uses a simple routing mechanism via `public/index.php` with an `action` GET parameter. All API responses are in JSON format.
+
+### Get Playlist
+-   **Action:** `?action=getPlaylist`
+-   **Method:** `GET`
+-   **Description:** Retrieves the list of all songs.
+-   **Success Response (200 OK):**
+    ```json
+    {
+        "status": "success",
+        "data": {
+            "songs": [
+                {
+                    "id": 1,
+                    "title": "Song Title",
+                    "file": "uploads/song.mp3",
+                    "cover": "uploads/cover.jpg",
+                    "artist": "Artist Name",
+                    "lyrics": "Song lyrics...",
+                    "uploaded_at": "YYYY-MM-DD HH:MM:SS"
+                }
+                // ... more songs
+            ]
+        }
+    }
+    ```
+-   **Error Response (500 Internal Server Error):**
+    ```json
+    {
+        "status": "error",
+        "message": "Could not retrieve playlist due to a server error."
+    }
+    ```
+
+### Upload Song
+-   **Action:** `?action=uploadSong`
+-   **Method:** `POST` (Multipart form data)
+-   **Description:** Uploads a new song with its metadata.
+-   **Form Fields:**
+    -   `title` (text, optional - defaults from filename)
+    -   `artist` (text, optional - defaults to "Unknown Artist")
+    -   `lyrics` (text, optional)
+    -   `song` (file, required, MP3)
+    -   `cover` (file, optional, JPG/PNG/GIF)
+    -   `csrf_token` (hidden, required)
+-   **Success Response (201 Created):**
+    ```json
+    {
+        "status": "success",
+        "message": "File uploaded successfully",
+        "data": {
+            "song": { /* ... new song object ... */ }
+        }
+    }
+    ```
+-   **Error Responses:**
+    -   `400 Bad Request`: Validation errors (e.g., missing fields, invalid file type/size, text too long).
+    -   `403 Forbidden`: CSRF token failure.
+    -   `413 Payload Too Large`: File size exceeds limits.
+    -   `415 Unsupported Media Type`: Invalid file MIME type.
+    -   `429 Too Many Requests`: Rate limit exceeded.
+    -   `500 Internal Server Error`: Server-side processing errors.
+
+### Update Song Metadata
+-   **Action:** `?action=updateSongMetadata`
+-   **Method:** `POST`
+-   **Description:** Updates the metadata (title, artist, lyrics) for an existing song.
+-   **Payload (JSON):**
+    ```json
+    {
+        "song_id": 123, // Integer, required
+        "title": "New Song Title", // String, required
+        "artist": "New Artist Name", // String, required
+        "lyrics": "Updated lyrics here...", // String, optional
+        "csrf_token": "your_csrf_token_here" // String, required
+    }
+    ```
+-   **Success Response (200 OK):**
+    ```json
+    {
+        "status": "success",
+        "message": "Song metadata updated successfully."
+        // Or "No changes detected..." if data was identical
+    }
+    ```
+-   **Error Responses:**
+    -   `400 Bad Request`: Validation errors (e.g., missing fields, invalid song_id, text too long).
+    -   `403 Forbidden`: CSRF token failure.
+    -   `404 Not Found`: If `song_id` does not exist.
+    -   `500 Internal Server Error`: Server-side processing errors.
 
 ---
